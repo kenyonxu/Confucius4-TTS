@@ -26,9 +26,10 @@ conda create -n confuciustts_vllm --clone confuciustts -y
 conda activate confuciustts_vllm
 pip install -r requirements_vllm_add.txt   # vLLM 0.16.0 (V1 engine)
 
-# 启动（模型已缓存时加 HF_HUB_OFFLINE=1 跳过联网检查）
+# 启动（模型已随仓库放在 models/hf/，通过 HF_HUB_CACHE 指向它；
+# HF_HUB_OFFLINE=1 跳过联网检查）
 cd /path/to/Confucius4-TTS
-HF_HUB_OFFLINE=1 python server.py --port 8000
+HF_HUB_CACHE="$PWD/models/hf" HF_HUB_OFFLINE=1 python server.py --port 8000
 ```
 
 启动参数：
@@ -207,6 +208,7 @@ REPO_ROOT = Path(r"E:\GitHub\Confucius4-TTS")
 PROMPT_WAV = Path("ref.wav").resolve()  # 在切换 CWD 前固定外部工程中的路径。
 OUTPUT_WAV = Path("out.wav").resolve()
 
+os.environ["HF_HUB_CACHE"] = str(REPO_ROOT / "models" / "hf")  # 模型随仓库存放。
 os.environ["HF_HUB_OFFLINE"] = "1"  # 模型已缓存时跳过联网。
 os.chdir(REPO_ROOT)                 # 当前版本从 CWD 读取 ./checkpoints。
 if str(REPO_ROOT) not in sys.path:
@@ -298,7 +300,7 @@ audio_hybrid = model._synth_segment(text, "zh", semA, 0.5 * embA + 0.5 * embB, m
 从仓库根目录执行：
 
 ```bash
-HF_HUB_OFFLINE=1 python example.py \
+HF_HUB_CACHE="$PWD/models/hf" HF_HUB_OFFLINE=1 python example.py \
     --prompt_wav ref.wav --text "文本" --lang zh --out out.wav \
     --config config/inference_config.yaml
 ```
@@ -337,8 +339,8 @@ HF_HUB_OFFLINE=1 python example.py \
 
 - **显存**：约 8GB 是本机 **transformers 基础后端、fp32 加载**的参考值，不能直接套用到 vLLM HTTP 服务。vLLM 还保留用于 latent 重算的原生 T2S 模型，并受 `gpu_memory_utilization` 配置影响，应单独实测峰值。
 - **CPU**：基础 Python API 可设置 `device="cpu"`，CLI 在无 CUDA 时也会选择 CPU，但速度会明显下降。不要把这一说明当作 vLLM HTTP 服务已经验证的 CPU 部署方案。
-- **磁盘**：模型共约 5.86GB，位于 HF 缓存 `~/.cache/huggingface/hub/models--{netease-youdao--Confucius4-TTS, facebook--w2v-bert-2.0, nvidia--bigvgan_v2_22khz_80band_256x, funasr--campplus}`；Windows 下 blobs/snapshots 双份存储约 11GB。tokenizer 与 `wav2vec2bert_stats.pt` 还来自仓库的 `checkpoints/`，不能只准备 HF 缓存而省略仓库文件。
-- **离线运行**：模型缓存和仓库 `checkpoints/` 齐全后设 `HF_HUB_OFFLINE=1`，运行过程不联网。
+- **磁盘 / 模型存放（本机布局）**：模型共约 5.5GB，**随仓库放在 `<仓库根>/models/hf/`**（标准 HF 缓存目录结构，`models/` 已加入 `.gitignore`）。运行时通过 `HF_HUB_CACHE=<仓库根>/models/hf` 指向该目录，不设此变量时会回落到 `~/.cache/huggingface/hub` 并触发重新下载。tokenizer 与 `wav2vec2bert_stats.pt` 还来自仓库的 `checkpoints/`，不能只准备模型目录而省略仓库文件。
+- **离线运行**：模型目录和仓库 `checkpoints/` 齐全后设 `HF_HUB_OFFLINE=1`（配合 `HF_HUB_CACHE`），运行过程不联网。
 - **首次下载**（新机器）：可设置 `HF_ENDPOINT=https://hf-mirror.com` 后启动自动下载。国内镜像高并发分片下载曾出现损坏或限流，必要时应降低并发并校验文件。
 - **ModelScope 替代下载**：可手工获取 `netease-youdao/Confucius4-TTS`、`AI-ModelScope/w2v-bert-2.0`，但当前加载代码使用 Hugging Face API 和缓存布局，**ModelScope 缓存不会被自动识别**。需要自行转换为对应缓存 / 本地路径或调整加载代码，并校验 sha256；其余模型也要另行准备，不能只下载这两个仓库。
 - **采样率与声道**：各路径均为 22050 Hz / 单声道。
